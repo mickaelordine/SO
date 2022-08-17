@@ -1,0 +1,5 @@
+/*
+- con IPC_NOWAIT permettiamo una non blockingsend, quindi al posto che aspettare che la coda si liberi lanceremo un errore
+
+
+*/
