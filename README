@@ -1,5 +1,91 @@
 /*
-- con IPC_NOWAIT permettiamo una non blockingsend, quindi al posto che aspettare che la coda si liberi lanceremo un errore
+
+IPCS:
+IPC_NOWAIT-> permettiamo una non blockingsend, quindi al posto che aspettare che la coda si liberi lanceremo un errore
+IPC_CREAT-> IPC_CREAT tells the system to create a new memory segment for the shared memory.
+IPC_EXCL-> This flag is used with IPC_CREAT to ensure that this call creates the segment.  If the segment already exists, the call fails
+0666 -> 0666 sets the access permissions of the memory segment to write and read the current sharedmem
+
+SIGALRM -> signal is sent after a specified amount of time elapsed
+SA_SIGINFO -> If the SA_SIGINFO flag is set in the sa_flags field, the sa_sigaction field specifies a signal-catching function, con info aggiuntive su chi ci ha mandato il segnale
+SIGCHLD -> When a child process stops or terminates, SIGCHLD is sent to the parent process
+SIG_BLOCK -> aggiunge alle maschere già presenti quelle aggiunte da quella attuale che stiamo aggiungendo
+
+WNOHANG -> This flag specifies that waitpid should return immediately instead of waiting, se il figlio sta ancora eseguendo ritornerà zero e il figlio continuerà a procedere nel suo codice, questo genera una wait non bloccante per l'esecuzione.
+
+*/
+
+
+
+
+/*
+FUNZIONI E SEGNALI COMPRENSIONE
+
+---MASTER---
+
+°   readConstants() -> legge i valori di costanti da un file estreno const.txt e inserisce i valori nella mem condivisa constants.
+°   calculateBalances() -> calcola il bilancio usando il libro mastro per prendere i valori e sorta in maniera discendente gli userBalance e i nodeBalance con qsort()
+°   endMaster() -> handler per la terminazione dell'esecuzione, può finire in 3 modi : 1.ENDTIME  2.ENDSPACE  3.ONEALIVE,
+questa funzione sarà richiamata dal masterSigHandler che ci dirà in che modo temrinare il processo. Solo i nodi manderanno al master i segnali.
+°   sigChldHandler() -> handler per i segnali dei figli usato con il segnale sigchld per gestire la terminazione di quello specifico user
+°   masterSigHandler() -> accetta 3 segnali, 1. da terminale CTRL+C per mandare una trans 2. finito lo spazio nel LM 3. finito il tempo
+°   main() -> forka user e nodi, genera e setta le maschere dei segnali da ricevere e setta gli handler per determinati segnali
+
+---USER---
+
+°   userSleep() -> setta un tot amount of sleeptime nella struttura timespec che returna
+°   calculateReceived() -> calcola i soldi ricevuti dal LM
+°   getDest() -> cerca un dest != da me
+°   getNode() -> prende un nodo tra quelli presenti
+°   endUser() -> termina la sua esistenza nel LM mettendosi con il pid negativo
+°   sigUSR1Handler() -> hanlder di SIGURS1, se è il master a mandarlo TERMINO, se è il nodo, vuol dire che ho mandato un messaggio a pool piena e quindi serve a riprendersi i soldi inviati
+°   userSigHandler() -> handler di SIGALRM e SIGUSR2, il primo è quando l'user non ha mai iniziato (c'è stato un errore quindi non è partito correttamente dopo tot tempo), il secondo viene inviato dal master per dire allo user che deve mandare una transazione generata dal segnale CTRL+C
+°   newAlarmHandler() -> usato come nuovo hanlder dopo che lo user è partito per evitare che venga terminato dopo tot secondi perchè non era partito correttamente, la funzione è vuota quindi se verrà mandato il segnale di SIGALRM verrà ignorato. SIGALRM potrà essere generato dal fatto che diamo un secondo di tempo allo user di mandare la prima trans, se non lo fa, allora verrà ucciso.
+°   main() -> setta le maschere e gli hanlder e inizia a mandare transazioni finchè ha ancora vite
+
+
+---NODE---
+
+°   rewardTransaction() -> usata per settare nell'ultima posizione del blocco la somma delle rewards
+°   nodeSleep() -> setta un ammontare di tempo per cui il nodo dovra dormire
+°   endNode() -> termina il nodo e il reader associato.
+°   nodeSigHandler() -> gestisce SIGURS1, segnale arrivato dal master per terminare il nodo a fine esecuzione
+°   main() -> setta le maschere e gli hanlder, forka i reader e parte ad aspettare che un blocco si riempia completamente 
+
+
+---NODEREADER---
+°   readerSigHandler() -> hanlder per SIGURS1 che segnala la terminazione del processo inviata da node che a sua volta l'ha ricevuto dal master
+°   main() -> setta la maschera e l'handler e inizia a leggere i messaggi che gli arrivano inserendoli nella pool, se la pool e piena manda un segnale allo user di riprendersi la transazione che ha fatto strabordare la pool.
+
+
+---SEMAFORI---
+
+FUNZIONI
+
+°   quickFree() -> libera una semaforo
+°   quickTake() -> prende un semaforo
+°   quickWait() -> aspetta che tutti i semafori disponibili siano stati presi. If sem_op is zero, This is a "wait-for-zero" operation: if semval is zero, the operation can immediately proceed.
+
+COMPRENSIONE
+
+---MASTER SEM due semafori---
+MASTERSEM[0] -> viene utilizzato inizialmente per i figli per aspettare che U+N siano stati figliati tutti per poi partire assieme, e poi successivamente verrà usato per la sincronizzazione nel libro mastro per darsi i turni nell'inserire blocchi nel ledger.
+MASTERSEM[1] -> serve per la sincronizzazione di U+N+NR
+
+
+---NODESEM due semafori---
+NODESEM[0] -> usato inizialmente con la sincronizzazione col reader, in seguito usato per segnalare al reader che ha svuotato la pool così il reader potrà procedere a inserire nuove transazioni e il nodo lo risetta a 0
+NODESEM[1] -> usato per dire quando il reader deve partire, in seguito usato per sapere quando la pool è piena per prendermi la pool condivisa e metterla in una locale
+
+---NODEREADERSEM---
+NODESEM[0] -> dice al nodo che la pool e piena e va svuotata, usata per sapere se la pool è stata svuotata
+NODESEM[1] -> se lo tiene per inserire trans nella pool, una volta che è piena e lo rilasca da la possibilità al nodo di svuotarla nel LM
+
+
+
+---USER---
+usa solo il sem del master per coordinarsi nella crezione dei figli.
+
 
 
 */
